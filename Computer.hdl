@@ -1,0 +1,39 @@
+// ============================================================================
+// Nand to Tetris - I (ETCCNT301) Capstone Project: Make the Computer Draw a Box
+// Student  : Prabhat Tewatia
+// Roll No. : 2501730207  (Personal Number K = 07)
+// File     : capstone/Computer.hdl
+// ============================================================================
+
+/**
+ * The Hack Computer: Harvard architecture uniting ROM32K, CPU, and Memory.
+ *
+ * Fetch-Execute Cycle:
+ *   1. ROM32K fetches the 16-bit instruction at address pc.
+ *   2. CPU decodes & executes the instruction using inM (from Memory)
+ *      and outputs outM, writeM, addressM, and the next pc.
+ *   3. Memory reads/writes RAM, Screen, or Keyboard at addressM.
+ *
+ * Setting reset=1 restarts execution from ROM[0].
+ */
+
+CHIP Computer {
+
+    IN reset;
+
+    PARTS:
+    // 1. Instruction Memory (32K x 16-bit ROM)
+    ROM32K(address=pc, out=instruction);
+
+    // 2. Central Processing Unit
+    CPU(inM=memOut,
+        instruction=instruction,
+        reset=reset,
+        outM=outM,
+        writeM=writeM,
+        addressM=addressM,
+        pc=pc);
+
+    // 3. Data Memory + Memory-Mapped I/O (RAM16K + Screen + Keyboard)
+    Memory(in=outM, load=writeM, address=addressM, out=memOut);
+}

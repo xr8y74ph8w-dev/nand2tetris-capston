@@ -1,0 +1,94 @@
+// ============================================================================
+// Nand to Tetris - I (ETCCNT301) Capstone Project: Make the Computer Draw a Box
+// Student  : Prabhat Tewatia
+// Roll No. : 2501730207  (Personal Number K = 07)
+// File     : capstone/CPU.hdl
+// ============================================================================
+
+/**
+ * The Hack Central Processing Unit (CPU).
+ *
+ * Instruction format (16 bits):
+ *   A-instruction: 0 vvvvvvvvvvvvvvv  (loads 15-bit constant into A)
+ *   C-instruction: 1 1 1 a c1 c2 c3 c4 c5 c6 d1 d2 d3 j1 j2 j3
+ *     - bit 15     : opcode (0 = A-inst, 1 = C-inst)
+ *     - bit 12     : a-bit  (0 = use A register, 1 = use inM)
+ *     - bits 11..6 : ALU control bits (zx, nx, zy, ny, f, no)
+ *     - bits 5..3  : destination bits (d1=A, d2=D, d3=M)
+ *     - bits 2..0  : jump condition bits (j1=<0, j2==0, j3=>0)
+ *
+ * Note: Uses built-in ARegister, DRegister, ALU, and PC (ARegister and
+ * DRegister are inspected directly by the official CPU.tst and Computer*.tst).
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to restart the current program
+                         // (reset==1) or continue executing (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M?
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // Address of next instruction
+
+    PARTS:
+    // --- 1. Instruction Type Decoding ---
+    // instruction[15] == 0 -> A-instruction; instruction[15] == 1 -> C-instruction
+    Not(in=instruction[15], out=isAInst);
+
+    // --- 2. A-Register Datapath & Control ---
+    // On A-instruction: feed raw instruction into ARegister.
+    // On C-instruction: feed ALU output into ARegister (when d1 == 1).
+    Mux16(a=instruction, b=aluOut, sel=instruction[15], out=aRegIn);
+
+    And(a=instruction[15], b=instruction[5], out=cWriteA);
+    Or(a=isAInst, b=cWriteA, out=loadA);
+    ARegister(in=aRegIn, load=loadA, out=aRegOut, out[0..14]=addressM);
+
+    // --- 3. D-Register Control ---
+    // Load D only on a C-instruction whose d2 bit (instruction[4]) is 1.
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=aluOut, load=loadD, out=dRegOut);
+
+    // --- 4. Memory Write Control ---
+    // Assert writeM only on a C-instruction whose d3 bit (instruction[3]) is 1.
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // --- 5. ALU Input Selection & Execution ---
+    // Select A or M (inM) for ALU's y-input based on the 'a' bit (instruction[12]).
+    Mux16(a=aRegOut, b=inM, sel=instruction[12], out=aluY);
+
+    ALU(x=dRegOut,
+        y=aluY,
+        zx=instruction[11],
+        nx=instruction[10],
+        zy=instruction[9],
+        ny=instruction[8],
+        f=instruction[7],
+        no=instruction[6],
+        out=aluOut,
+        out=outM,
+        zr=aluZero,
+        ng=aluNeg);
+
+    // --- 6. Jump Logic & Program Counter ---
+    // Strictly positive flag: aluPos = NOT(aluZero OR aluNeg)
+    Or(a=aluZero, b=aluNeg, out=aluLteZero);
+    Not(in=aluLteZero, out=aluPos);
+
+    // Evaluate each jump condition bit against ALU status flags
+    And(a=instruction[2], b=aluNeg,  out=jumpLT); // j1: out < 0
+    And(a=instruction[1], b=aluZero, out=jumpEQ); // j2: out == 0
+    And(a=instruction[0], b=aluPos,  out=jumpGT); // j3: out > 0
+
+    Or(a=jumpLT, b=jumpEQ, out=jumpLE);
+    Or(a=jumpLE, b=jumpGT, out=jumpRequested);
+
+    // Jumps are only permitted during C-instructions
+    And(a=instruction[15], b=jumpRequested, out=pcLoad);
+
+    // Priority inside PC: reset > load (jump to A) > inc (PC + 1)
+    PC(in=aRegOut, load=pcLoad, inc=true, reset=reset, out[0..14]=pc);
+}
